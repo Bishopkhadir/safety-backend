@@ -9,6 +9,17 @@ const userSchema = new mongoose.Schema({
     enum: ['individual', 'parent', 'child', 'driver'],
     default: 'individual',
   },
+  status: {
+    type: String,
+    enum: ['active', 'pending'],
+    default: 'active',
+  },
+  parentId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    default: null,
+  },
+  pushToken: { type: String, default: null },
   contacts: [
     {
       name: String,
