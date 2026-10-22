@@ -19,6 +19,7 @@ const userSchema = new mongoose.Schema({
     ref: 'User',
     default: null,
   },
+  deviceId: { type: String, unique: true, sparse: true },
   pushToken: { type: String, default: null },
   contacts: [
     {

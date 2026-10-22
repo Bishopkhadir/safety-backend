@@ -11,6 +11,7 @@ const routinesRoutes = require('./routes/routines');
 const childrenRoutes = require('./routes/children');
 const locationRoutes = require('./routes/location');
 const pushRoutes = require('./routes/push');
+const devicesRoutes = require('./routes/devices'); // <-- NEW
 const { startScheduler } = require('./scheduler');
 
 const app = express();
@@ -33,6 +34,7 @@ app.use('/routines', routinesRoutes);
 app.use('/children', childrenRoutes);
 app.use('/location', locationRoutes);
 app.use('/push', pushRoutes);
+app.use('/devices', devicesRoutes); // <-- NEW
 
 app.get('/', (req, res) => {
   res.json({ message: '🛡️ SafeTrip API is running' });
