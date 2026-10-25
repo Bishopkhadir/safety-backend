@@ -29,31 +29,49 @@ async function sendSMS(to, message) {
 
 // 🚨 SOS
 router.post('/sos', auth, async (req, res) => {
-  // ... [Keep your existing SOS code] ...
   try {
-    const { location } = req.body;
+    const { location, selectedPhones } = req.body;
     const user = await User.findById(req.userId);
     if (!user) return res.status(404).json({ error: 'User not found' });
+
+    console.log(`\n🚨 SOS received from: ${user.name} (${user.role})`);
 
     const mapsLink = location
       ? `https://maps.google.com/?q=${location.latitude},${location.longitude}`
       : 'Location unavailable';
 
-    const recipients = new Set();
     const alertRecipients = [];
+    let toArray = [];
 
-    if (user.parentId) {
-      const parent = await User.findById(user.parentId);
-      if (parent) {
-        recipients.add(parent.phone);
-        alertRecipients.push(parent._id);
+    // If specific contacts were selected in the app
+    if (selectedPhones && selectedPhones.length > 0) {
+      toArray = selectedPhones;
+    } else {
+      // Otherwise, fallback to ALL contacts + Parent
+      const recipients = new Set();
+      if (user.parentId) {
+        const parent = await User.findById(user.parentId);
+        if (parent) {
+          recipients.add(parent.phone);
+          alertRecipients.push(parent._id);
+        }
       }
+      (user.contacts || []).forEach((c) => {
+        if (c.phone) recipients.add(c.phone);
+      });
+      toArray = Array.from(recipients);
     }
-    (user.contacts || []).forEach((c) => recipients.add(c.phone));
+
+    console.log(`📞 Sending SOS to ${toArray.length} contacts.`);
+
+    if (toArray.length === 0) {
+      return res.status(400).json({ error: 'No contacts selected or saved.' });
+    }
 
     const isChild = user.role === 'child';
     const title = isChild ? `🚨 ${user.name} pressed SOS!` : `🚨 ${user.name} needs help!`;
 
+    // In-app alerts for parents
     for (const uid of alertRecipients) {
       await Alert.create({
         userId: uid, type: 'sos', title, message: `Location: ${mapsLink}`,
@@ -62,42 +80,55 @@ router.post('/sos', auth, async (req, res) => {
       await sendPushToUser(uid, title, 'Tap to see their location', { type: 'sos' });
     }
 
-    const toArray = Array.from(recipients);
-    const results = await Promise.all(toArray.map((phone) => sendSMS(phone, title + `\n\n` + mapsLink)));
+    // SMS to selected contacts
+    const results = await Promise.all(toArray.map((phone) => 
+      sendSMS(phone, `${title}\n\nLocation: ${mapsLink}`)
+    ));
 
-    res.json({ success: true, sent: results.filter((r) => r).length });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+    res.json({ success: true, sent: results.filter((r) => r).length, total: toArray.length });
+  } catch (err) {
+    console.error('SOS error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
 });
 
-// 🚗 Share Trip
+// 🚗 Share Trip (with specific contacts)
 router.post('/share-trip', auth, async (req, res) => {
-  // ... [Keep your existing Share Trip code] ...
   try {
-    const { location, destination } = req.body;
+    const { location, destination, selectedPhones } = req.body;
     const user = await User.findById(req.userId);
     if (!user) return res.status(404).json({ error: 'User not found' });
 
-    const recipients = new Set();
-    if (user.parentId) {
-      const parent = await User.findById(user.parentId);
-      if (parent) recipients.add(parent.phone);
+    let toArray = [];
+    if (selectedPhones && selectedPhones.length > 0) {
+      toArray = selectedPhones;
+    } else {
+      const recipients = new Set();
+      if (user.parentId) {
+        const parent = await User.findById(user.parentId);
+        if (parent) recipients.add(parent.phone);
+      }
+      (user.contacts || []).forEach((c) => {
+        if (c.phone) recipients.add(c.phone);
+      });
+      toArray = Array.from(recipients);
     }
-    (user.contacts || []).forEach((c) => recipients.add(c.phone));
+
+    if (toArray.length === 0) return res.status(400).json({ error: 'No contacts selected.' });
 
     const mapsLink = `https://maps.google.com/?q=${location.latitude},${location.longitude}`;
     const destText = destination ? `\n\nGoing to: ${destination.name}` : '';
     const message = `${user.name} started a trip.${destText}\n\nTrack live: ${mapsLink}`;
 
-    const toArray = Array.from(recipients);
     const results = await Promise.all(toArray.map((phone) => sendSMS(phone, message)));
-
     res.json({ success: true, sent: results.filter((r) => r).length });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // 🚸 Child Trip Started
 router.post('/child-trip-started', auth, async (req, res) => {
-  // ... [Keep your existing Trip Started code] ...
   try {
     const { location, destination } = req.body;
     const user = await User.findById(req.userId);
@@ -119,7 +150,7 @@ router.post('/child-trip-started', auth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ✅ NEW: Child Trip Ended (Safe Arrival)
+// ✅ Child Trip Ended (Safe Arrival)
 router.post('/child-trip-ended', auth, async (req, res) => {
   try {
     const { location, destination } = req.body;
@@ -132,28 +163,15 @@ router.post('/child-trip-ended', auth, async (req, res) => {
     const title = `✅ ${user.name} arrived safely`;
     const message = `Arrived at ${destination?.name || 'destination'}.`;
     
-    // 1. In-App Alert
     await Alert.create({
-      userId: parent._id, 
-      type: 'trip_ended', 
-      title: title,
-      message: message, 
-      fromUserId: user._id, 
-      fromName: user.name, 
-      latitude: location?.latitude, 
-      longitude: location?.longitude,
+      userId: parent._id, type: 'trip_ended', title, message, 
+      fromUserId: user._id, fromName: user.name, latitude: location?.latitude, longitude: location?.longitude,
     });
-
-    // 2. Push Notification
     await sendPushToUser(parent._id, title, message, { type: 'trip_ended' });
-
-    // 3. SMS (Best effort)
     await sendSMS(parent.phone, `✅ ${user.name} has arrived safely at ${destination?.name || 'their destination'}.`);
 
     res.json({ success: true });
-  } catch (err) { 
-    res.status(500).json({ error: err.message }); 
-  }
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 module.exports = router;
