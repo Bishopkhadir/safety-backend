@@ -1,16 +1,41 @@
 const express = require('express');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
+const axios = require('axios'); // ADDED: Needed to call Termii
 const User = require('../models/User');
 const OTP = require('../models/OTP');
+const Alert = require('../models/Alert'); // ADDED: Moved to top for safety
+const auth = require('../middleware/auth'); // FIXED: Moved to top
 
 const router = express.Router();
+
+// Helper function to send SMS via Termii
+async function sendTermiiSms(phone, code) {
+  try {
+    console.log(`📡 Attempting to send Termii SMS to ${phone}...`);
+    const response = await axios.post('https://api.ng.termii.com/api/sms/send', {
+      to: phone,
+      from: process.env.TERMII_SENDER_ID, // Must be set in Render Environment
+      sms: `Your SafeTrip verification code is: ${code}`,
+      type: 'plain',
+      channel: 'generic',
+      api_key: process.env.TERMII_API_KEY, // Must be set in Render Environment
+    });
+    console.log('✅ Termii SMS Sent Successfully:', response.data);
+    return true;
+  } catch (error) {
+    console.error('❌ TERMII ERROR:', error.response ? error.response.data : error.message);
+    return false;
+  }
+}
 
 // ===== Request OTP =====
 router.post('/request-otp', async (req, res) => {
   try {
     const { phone } = req.body;
     if (!phone) return res.status(400).json({ error: 'Phone is required' });
+
+    console.log(`\n🚀 OTP REQUEST RECEIVED for phone: ${phone}`);
 
     // Check if this is a pending child with an existing invite OTP
     const existingUser = await User.findOne({ phone });
@@ -25,6 +50,8 @@ router.post('/request-otp', async (req, res) => {
 
       if (existingOtp && existingOtp.expiresAt > new Date()) {
         console.log(`\n📱 Reusing invite OTP for pending child ${phone}: ${existingOtp.code}\n`);
+        // Send the reused invite code via Termii
+        await sendTermiiSms(phone, existingOtp.code);
         return res.json({
           success: true,
           message: 'Use the invite code sent by your parent',
@@ -41,6 +68,9 @@ router.post('/request-otp', async (req, res) => {
         expiresAt: new Date(Date.now() + 30 * 60 * 1000),
       });
       console.log(`\n📱 New OTP (invite expired) for ${phone}: ${code}\n`);
+      
+      // Actually send the SMS
+      await sendTermiiSms(phone, code);
       return res.json({ success: true, message: 'OTP sent' });
     }
 
@@ -54,11 +84,20 @@ router.post('/request-otp', async (req, res) => {
       expiresAt: new Date(Date.now() + 30 * 60 * 1000),
     });
 
-    console.log(`\n📱 OTP for ${phone}: ${code}\n`);
+    console.log(`\n🔥🔥 GENERATED OTP FOR ${phone}: ${code}\n`);
+
+    // Actually send the SMS
+    const smsSent = await sendTermiiSms(phone, code);
+
+    if (!smsSent) {
+       // If Termii fails, we still return success so the app doesn't crash, 
+       // but you can read the OTP in the Render logs for now.
+       console.log("⚠️ Note: Termii failed, but OTP is in the logs above.");
+    }
 
     res.json({ success: true, message: 'OTP sent' });
   } catch (err) {
-    console.error(err);
+    console.error('❌ Request OTP Error:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -108,7 +147,6 @@ router.post('/verify-otp', async (req, res) => {
 
         // Notify parent
         try {
-          const Alert = require('../models/Alert');
           if (user.parentId) {
             await Alert.create({
               userId: user.parentId,
@@ -194,8 +232,6 @@ router.post('/login', async (req, res) => {
 });
 
 // ===== Update Role =====
-const auth = require('../middleware/auth');
-
 router.put('/role', auth, async (req, res) => {
   try {
     const { role } = req.body;
@@ -228,6 +264,7 @@ router.put('/role', auth, async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
 // ===== Change Password (Logged In) =====
 router.put('/change-password', auth, async (req, res) => {
   try {
@@ -247,4 +284,5 @@ router.put('/change-password', auth, async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
 module.exports = router;
