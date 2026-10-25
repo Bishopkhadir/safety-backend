@@ -11,9 +11,9 @@ const TERMII_URL = 'https://api.ng.termii.com/api/sms/send';
 
 async function sendSMS(to, message) {
   try {
-    const cleaned = to.replace('+', '');
+    // FIXED: Keep the '+' sign for Termii international format
     const res = await axios.post(TERMII_URL, {
-      to: cleaned,
+      to: to,
       from: process.env.TERMII_SENDER_ID,
       sms: message,
       type: 'plain',
