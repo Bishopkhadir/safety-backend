@@ -11,7 +11,7 @@ const TERMII_URL = 'https://api.ng.termii.com/api/sms/send';
 
 async function sendSMS(to, message) {
   try {
-    // FIXED: Keep the '+' sign for Termii international format
+    // Keep the '+' sign for Termii international format
     const res = await axios.post(TERMII_URL, {
       to: to,
       from: process.env.TERMII_SENDER_ID,
@@ -127,48 +127,58 @@ router.post('/share-trip', auth, async (req, res) => {
   }
 });
 
-// 🚸 Child Trip Started
+// 🚸 Trip Started (Works for Child AND Individual)
 router.post('/child-trip-started', auth, async (req, res) => {
   try {
     const { location, destination } = req.body;
     const user = await User.findById(req.userId);
-    if (!user || !user.parentId) return res.status(400).json({ error: 'Invalid' });
-
-    const parent = await User.findById(user.parentId);
-    if (!parent) return res.status(404).json({ error: 'Parent not found' });
+    if (!user) return res.status(404).json({ error: 'User not found' });
 
     const destText = destination ? `Going to: ${destination.name}` : 'Tap to see live location';
-    
-    await Alert.create({
-      userId: parent._id, type: 'trip_started', title: `🚗 ${user.name} started a trip`,
-      message: destText, fromUserId: user._id, fromName: user.name, latitude: location?.latitude, longitude: location?.longitude,
-    });
-    await sendPushToUser(parent._id, `🚗 ${user.name} started a trip`, destText, { type: 'trip_started' });
-    await sendSMS(parent.phone, `🚸 ${user.name} just started a trip.${destination ? `\n\nGoing to: ${destination.name}` : ''}`);
+
+    // ✅ FIX: If user has a parent, notify them. If Individual, just return success.
+    if (user.parentId) {
+      const parent = await User.findById(user.parentId);
+      if (parent) {
+        await Alert.create({
+          userId: parent._id, type: 'trip_started', title: `🚗 ${user.name} started a trip`,
+          message: destText, fromUserId: user._id, fromName: user.name, latitude: location?.latitude, longitude: location?.longitude,
+        });
+        await sendPushToUser(parent._id, `🚗 ${user.name} started a trip`, destText, { type: 'trip_started' });
+        await sendSMS(parent.phone, `🚸 ${user.name} just started a trip.${destination ? `\n\nGoing to: ${destination.name}` : ''}`);
+      }
+    } else {
+      console.log(`🚗 Individual/Driver ${user.name} started a trip (No parent to notify)`);
+    }
 
     res.json({ success: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ✅ Child Trip Ended (Safe Arrival)
+// ✅ Trip Ended / Safe Arrival (Works for Child AND Individual)
 router.post('/child-trip-ended', auth, async (req, res) => {
   try {
     const { location, destination } = req.body;
     const user = await User.findById(req.userId);
-    if (!user || !user.parentId) return res.status(400).json({ error: 'Invalid' });
-
-    const parent = await User.findById(user.parentId);
-    if (!parent) return res.status(404).json({ error: 'Parent not found' });
+    if (!user) return res.status(404).json({ error: 'User not found' });
 
     const title = `✅ ${user.name} arrived safely`;
     const message = `Arrived at ${destination?.name || 'destination'}.`;
-    
-    await Alert.create({
-      userId: parent._id, type: 'trip_ended', title, message, 
-      fromUserId: user._id, fromName: user.name, latitude: location?.latitude, longitude: location?.longitude,
-    });
-    await sendPushToUser(parent._id, title, message, { type: 'trip_ended' });
-    await sendSMS(parent.phone, `✅ ${user.name} has arrived safely at ${destination?.name || 'their destination'}.`);
+
+    // ✅ FIX: If user has a parent, notify them. If Individual, just return success.
+    if (user.parentId) {
+      const parent = await User.findById(user.parentId);
+      if (parent) {
+        await Alert.create({
+          userId: parent._id, type: 'trip_ended', title, message, 
+          fromUserId: user._id, fromName: user.name, latitude: location?.latitude, longitude: location?.longitude,
+        });
+        await sendPushToUser(parent._id, title, message, { type: 'trip_ended' });
+        await sendSMS(parent.phone, `✅ ${user.name} has arrived safely at ${destination?.name || 'their destination'}.`);
+      }
+    } else {
+      console.log(`✅ Individual/Driver ${user.name} arrived safely (No parent to notify)`);
+    }
 
     res.json({ success: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
