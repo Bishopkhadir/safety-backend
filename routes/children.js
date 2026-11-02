@@ -70,7 +70,7 @@ router.post('/', auth, async (req, res) => {
   }
 });
 
-// 🔗 NEW: Link a Tracker to a Child
+// 🔗 Link a Tracker to a Child
 router.put('/:id/tracker', auth, async (req, res) => {
   try {
     const { deviceId } = req.body;
@@ -98,11 +98,23 @@ router.put('/:id/tracker', auth, async (req, res) => {
   }
 });
 
-// DELETE a child
+// ✅ DELETE a child (Works for both Pending and Active)
 router.delete('/:id', auth, async (req, res) => {
   try {
-    await User.findOneAndDelete({ _id: req.params.id, parentId: req.userId, role: 'child' });
-    res.json({ success: true });
+    const child = await User.findOne({ _id: req.params.id, parentId: req.userId, role: 'child' });
+    
+    if (!child) {
+      return res.status(404).json({ error: 'Child not found or unauthorized' });
+    }
+
+    // Clean up any pending OTPs for this child so the old code stops working
+    await OTP.deleteMany({ phone: child.phone });
+
+    // Delete the child user
+    await User.findByIdAndDelete(req.params.id);
+
+    console.log(`🗑️ Child deleted: ${child.name} (${child.phone})`);
+    res.json({ success: true, message: 'Child deleted successfully' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
