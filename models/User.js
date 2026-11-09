@@ -27,9 +27,11 @@ const userSchema = new mongoose.Schema({
       phone: String,
     },
   ],
-  // ✅ NEW: Stores the temporary ID for public live-tracking links
   activeShareId: { type: String, default: null },
   
+  // ✅ NEW: Store the route coordinates for the web viewer
+  activeRoute: { type: Array, default: [] },
+
   createdAt: { type: Date, default: Date.now },
 });
 
