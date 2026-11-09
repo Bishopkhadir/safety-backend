@@ -73,10 +73,10 @@ router.post('/share-link', auth, async (req, res) => {
     // Save this ID to the user's document so we know who it belongs to
     await User.findByIdAndUpdate(req.userId, { activeShareId: shareId });
     
-    // Return the public link (Points to the live.html page on your website)
+    // ✅ UPDATED: Clean URL without .html
     res.json({ 
       success: true, 
-      shareLink: `https://skywalk.com.ng/live.html?id=${shareId}` 
+      shareLink: `https://skywalk.com.ng/live?id=${shareId}` 
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
